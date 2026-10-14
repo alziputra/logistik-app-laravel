@@ -9,8 +9,6 @@ import { VIEW_TITLES } from "../constants/tabConfig";
 import { useNotif } from "../hooks/useNotif";
 import { useTabs } from "../hooks/useTabs";
 import { useTransaksi } from "../hooks/useTransaksi";
-import axios from 'axios';
-import { fetchJenisMeubelair } from "../services/meubelairService";
 import useIdleTimeout from "../hooks/useIdleTimeout";
 
 import { calculateAutoStatus } from "../utils/deviceUtils";
@@ -112,8 +110,6 @@ export default function App(props) {
   // Admin tidak dibatasi idle timeout 20 menit; user non-admin dimonitor jika idle 20 menit
   useIdleTimeout(20, userRole !== "admin");
 
-  const appId = "logistikku_app_01";
-
   // State management populated from Laravel props
   const [inventory, setInventory] = useState(props.inventory || []);
   const [outlets, setOutlets] = useState(props.outlets || []);
@@ -141,14 +137,7 @@ export default function App(props) {
   useEffect(() => { setOutletAreas(props.outletAreas || []); }, [props.outletAreas]);
 
   const handleRefreshJenis = async () => {
-    try {
-      const data = await fetchJenisMeubelair();
-      if (Array.isArray(data)) {
-        setJenisMeubelairs(data);
-      }
-    } catch (err) {
-      console.error("Failed to refresh jenis meubelair:", err);
-    }
+    router.reload({ only: ["jenisMeubelairs"] });
   };
 
   const [landFilter, setLandFilter] = useState("");
@@ -276,26 +265,77 @@ export default function App(props) {
   const { notif, showNotif } = useNotif();
   const { tabs, setTabs, activeTab, setActiveTab, handleSetView } = useTabs();
 
-  // On-demand fetch untuk tab yang di-lazy load (hanya diambil saat tab dibuka pertama kali)
-  const lazyLoadedRef = useRef(new Set());
+  // Load data khusus modul hanya ketika tab pertama kali dibuka.
+  const lazyRequestedRef = useRef(new Set());
+
+  const lazyPropsByTab = {
+    dashboard_bangunan: ["buildingRenovations"],
+    dashboard_pengamanan: ["securityFacilities"],
+    master_barang: ["masterMeubelairs", "vendors", "outlets"],
+    master_barang_meubelair: ["masterMeubelairs", "vendors", "outlets"],
+    master_barang_non_meubelair: ["masterMeubelairs", "vendors", "outlets"],
+    master_outlet: ["outlets", "outletAreas"],
+    master_vendor: ["vendors"],
+    form: ["masterMeubelairs", "vendors", "outlets"],
+    pusat_data_barang: ["masterMeubelairs", "vendors", "outlets"],
+    pusat_data_barang: ["masterMeubelairs", "vendors", "outlets", "spkHistory", "soppHistory"],
+    inventaris_mebelair: ["vendors", "outlets"],
+    mebelair_meja: ["vendors", "outlets"],
+    mebelair_kursi: ["vendors", "outlets"],
+    mebelair_lemari: ["vendors", "outlets"],
+    mebelair_sofa: ["vendors", "outlets"],
+    mebelair_ac: ["vendors", "outlets"],
+    perangkat_printer: ["vendors", "outlets"],
+    perangkat_komputer: ["vendors", "outlets"],
+    perangkat_laptop: ["vendors", "outlets"],
+    bangunan_tanah: ["vendors", "outlets"],
+    bangunan_sewa: ["vendors", "outlets"],
+    bangunan_renovasi: ["buildingRenovations", "vendors", "outlets"],
+    bangunan_sarana: ["securityFacilities", "outlets"],
+    sopp_pengadaan: ["masterMeubelairs", "vendors", "outlets"],
+    sopp_sewa: ["masterMeubelairs", "vendors", "outlets"],
+    sopp_renovasi: ["masterMeubelairs", "vendors", "outlets"],
+  };
 
   useEffect(() => {
     if (!activeTab) return;
 
-    if (activeTab === "log_aktivitas" && !props.activityLogs && !lazyLoadedRef.current.has("activityLogs")) {
-      lazyLoadedRef.current.add("activityLogs");
-      router.reload({ only: ["activityLogs"] });
-    } else if (activeTab === "kelola_user" && userRole === "admin" && !props.usersList && !lazyLoadedRef.current.has("usersList")) {
-      lazyLoadedRef.current.add("usersList");
-      router.reload({ only: ["usersList"] });
-    } else if (activeTab.startsWith("spk_") && !props.spkHistory && !lazyLoadedRef.current.has("spkHistory")) {
-      lazyLoadedRef.current.add("spkHistory");
-      router.reload({ only: ["spkHistory"] });
-    } else if (activeTab.startsWith("sopp_") && !props.soppHistory && !lazyLoadedRef.current.has("soppHistory")) {
-      lazyLoadedRef.current.add("soppHistory");
-      router.reload({ only: ["soppHistory"] });
+    const requestedProps = [
+      ...(activeTab === "log_aktivitas" ? ["activityLogs"] : []),
+      ...(activeTab === "kelola_user" && userRole === "admin" ? ["usersList"] : []),
+      ...(activeTab.startsWith("spk_") ? ["spkHistory"] : []),
+      ...(activeTab.startsWith("sopp_") ? ["soppHistory"] : []),
+      ...(lazyPropsByTab[activeTab] || []),
+    ];
+
+    // Props that should always reload on pusat_data_barang (to keep search fresh)
+    const alwaysRefreshProps = activeTab === "pusat_data_barang"
+      ? ["spkHistory", "soppHistory"]
+      : [];
+
+    const missingProps = requestedProps.filter((prop) => props[prop] === undefined);
+    const propsToLoad = [
+      ...missingProps.filter((prop) => !lazyRequestedRef.current.has(prop)),
+      ...alwaysRefreshProps.filter((prop) => !lazyRequestedRef.current.has(prop)),
+    ].filter((v, i, arr) => arr.indexOf(v) === i); // dedupe
+
+    if (propsToLoad.length > 0) {
+      propsToLoad.forEach((prop) => lazyRequestedRef.current.add(prop));
+      router.reload({
+        only: propsToLoad,
+        onSuccess: () => {
+          // Allow re-fetch on next visit to pusat_data_barang
+          if (activeTab === "pusat_data_barang") {
+            alwaysRefreshProps.forEach((p) => lazyRequestedRef.current.delete(p));
+          }
+        },
+        onError: () => propsToLoad.forEach((prop) => lazyRequestedRef.current.delete(prop)),
+        onCancel: () => propsToLoad.forEach((prop) => lazyRequestedRef.current.delete(prop)),
+      });
     }
-  }, [activeTab, userRole, props.activityLogs, props.usersList, props.spkHistory, props.soppHistory]);
+  }, [activeTab, userRole, props]);
+
+
   
   // Scroll to top on active tab view change
   useEffect(() => {
@@ -312,7 +352,7 @@ export default function App(props) {
     handleInputChange, handleItemChange, handleSaveTransaction,
     isSaving,
   } = useTransaksi({
-    user, appId, transactions, inventory,
+    user, transactions, inventory,
     setTransactions, setInventory, setActivityLogs,
     showNotif, navigateTo: handleSetView,
   });
@@ -370,19 +410,6 @@ export default function App(props) {
       window.removeEventListener("touchend", handleTouchEnd);
     };
   }, [isSidebarOpen]);
-
-  // Handle User Role update via Laravel API
-  const handleUpdateRole = async (userId, newRole) => {
-    try {
-      await axios.put(`/users/${userId}/role`, { role: newRole });
-      router.reload({ only: ['usersList', 'activityLogs'] });
-      showNotif(`Role berhasil diubah menjadi ${newRole.toUpperCase()}`, "success");
-    } catch (error) {
-      const msg = error.response?.data?.message || "Gagal mengubah role";
-      showNotif(msg, "error");
-      throw error;
-    }
-  };
 
   // Swipe back navigation gesture (left-to-right swipe)
   useEffect(() => {
@@ -519,7 +546,7 @@ export default function App(props) {
       />
 
       {/* Main Content Area */}
-      <div className={`pt-16 md:pt-0 ${isSidebarOpen ? "md:pl-[340px]" : "md:pl-[84px]"} flex flex-col min-h-screen print:pl-0 print:pt-0 transition-all duration-300`}>
+      <div className={`pt-16 md:pt-0 ${isSidebarOpen ? "md:pl-[292px]" : "md:pl-[72px]"} flex flex-col min-h-screen print:pl-0 print:pt-0 transition-all duration-300`}>
 
         {/* Sticky App Header */}
         <AppHeader
@@ -584,6 +611,7 @@ export default function App(props) {
 
             formData={formData}
             setFormData={setFormData}
+            startNewDocument={startNewDocument}
             items={items}
             setItems={setItems}
             activeTransaction={activeTransaction}
@@ -595,7 +623,6 @@ export default function App(props) {
             handleSaveTransaction={handleSaveTransaction}
             isSaving={isSaving}
             setView={handleSetView}
-            handleUpdateRole={handleUpdateRole}
             landFilter={landFilter}
             setLandFilter={setLandFilter}
             sewaFilter={sewaFilter}

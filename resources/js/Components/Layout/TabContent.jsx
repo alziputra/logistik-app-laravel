@@ -1,7 +1,6 @@
 // src/components/TabContent.jsx
 // Render semua panel konten per tab
-"use client";
-
+import { useState } from "react";
 import {
   DashboardView, DataMaster, FormView, PreviewView,
   DataPrinter, DataKomputer, DataLaptop,
@@ -86,6 +85,7 @@ export default function TabContent({
   onRefreshJenis = null,
   // form props
   formData, setFormData,
+  startNewDocument,
   items, setItems,
   activeTransaction, setActiveTransaction,
   // handlers
@@ -95,7 +95,6 @@ export default function TabContent({
   isSaving,
   setView,
   user,
-  handleUpdateRole,
   landFilter,
   setLandFilter,
   sewaFilter,
@@ -125,6 +124,7 @@ export default function TabContent({
   notificationCategoryFilter,
   setNotificationCategoryFilter,
 }) {
+  const [bastPreviewStatus, setBastPreviewStatus] = useState({ canProceed: false, message: "Lengkapi data wajib pada formulir." });
   const has = (id) => tabs.some((t) => t.id === id);
 
   return (
@@ -136,6 +136,7 @@ export default function TabContent({
             transactions={transactions}
             inventory={inventory}
             setView={setView}
+            startNewDocument={startNewDocument}
             activeTab={activeTab}
             user={user}
             userRole={userRole}
@@ -184,21 +185,39 @@ export default function TabContent({
           {userRole === "guest" ? (
             <AccessDeniedSurat setView={setView} />
           ) : (
-            <FormView
-              formData={formData}
-              handleInputChange={handleInputChange}
-              items={items}
-              handleItemChange={handleItemChange}
-              addItem={addItem}
-              removeItem={removeItem}
-              setView={setView}
-              inventory={inventory}
-              masterMeubelairs={masterMeubelairs}
-              outlets={outlets}
-              vendors={vendors}
-              transactions={transactions}
-              activeTransaction={activeTransaction}
-            />
+            <div className="mx-auto grid w-full max-w-[1700px] grid-cols-1 items-start gap-4 px-3 py-4 sm:px-5 lg:grid-cols-12 lg:gap-5 lg:px-6">
+              <div className="min-w-0 lg:col-span-6">
+                <FormView
+                  formData={formData}
+                  handleInputChange={handleInputChange}
+                  items={items}
+                  handleItemChange={handleItemChange}
+                  addItem={addItem}
+                  removeItem={removeItem}
+                  setView={setView}
+                  inventory={inventory}
+                  masterMeubelairs={masterMeubelairs}
+                  outlets={outlets}
+                  vendors={vendors}
+                  transactions={transactions}
+                  activeTransaction={activeTransaction}
+                  onValidityChange={setBastPreviewStatus}
+                />
+              </div>
+              <div className="hidden min-w-0 lg:sticky lg:top-4 lg:col-span-6 lg:block">
+                <PreviewView
+                  formData={formData}
+                  items={items}
+                  activeTransaction={activeTransaction}
+                  setView={setView}
+                  handleSaveTransaction={handleSaveTransaction}
+                  isSaving={isSaving}
+                  isLivePreview
+                  canProceed={bastPreviewStatus.canProceed}
+                  validationMessage={bastPreviewStatus.message}
+                />
+              </div>
+            </div>
           )}
         </Panel>
       )}
@@ -435,7 +454,7 @@ export default function TabContent({
       {has("kelola_user") && (
         <Panel id="kelola_user" activeTab={activeTab}>
           {userRole === "admin"
-            ? <KelolaAkses usersList={usersList} handleUpdateRole={handleUpdateRole} />
+            ? <KelolaAkses usersList={usersList} />
             : <AccessDenied />}
         </Panel>
       )}

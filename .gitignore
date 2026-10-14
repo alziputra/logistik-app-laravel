@@ -1,6 +1,7 @@
 *.log
 .agents
 .DS_Store
+.editorconfig
 .env
 .env.backup
 .env.production
@@ -23,3 +24,4 @@
 Homestead.json
 Homestead.yaml
 Thumbs.db
+backup_logistik.sql

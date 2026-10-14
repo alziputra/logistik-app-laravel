@@ -1,5 +1,3 @@
-"use client";
-
 import { useState } from "react";
 import {
   Package, LayoutDashboard, Menu, X, LogOut, ChevronDown, Box, Building2, Database,
@@ -40,7 +38,7 @@ const Navbar = ({
     if (v.startsWith("dashboard") || v === "dashboard") return "home";
     if (v.startsWith("spk_") || v.startsWith("sopp_") || v === "form" || v === "riwayat") return "surat";
     if (v.startsWith("master_")) return "data_master";
-    if (v.startsWith("perangkat_") || v.startsWith("inventaris_") || v.startsWith("mebelair_") || v === "pusat_data_barang") return "inventaris";
+    if (v.startsWith("perangkat_") || v.startsWith("inventaris_") || v.startsWith("mebelair_")) return "inventaris";
     if (v.startsWith("bangunan_")) return "bangunan";
     if (v === "log_aktivitas" || v === "kelola_user") return "pengaturan";
     return "home";
@@ -273,7 +271,7 @@ const Navbar = ({
         }`}
       >
         {/* PRIMARY LEFT ICON SIDEBAR (Rich Modern Dark Green Gradient) */}
-        <div className="w-[84px] bg-gradient-to-b from-[#0d5c3a] via-[#137447] to-[#083c25] dark:from-[#052819] dark:via-[#073622] dark:to-[#03140d] flex flex-col items-center shrink-0 shadow-xl text-white">
+        <div className="w-[72px] bg-gradient-to-b from-[#0d5c3a] via-[#137447] to-[#083c25] dark:from-[#052819] dark:via-[#073622] dark:to-[#03140d] flex flex-col items-center shrink-0 shadow-xl text-white">
           {/* Top Menu / Logo Icon */}
           <div className="h-16 flex items-center justify-center w-full border-b border-white/10 shrink-0">
             <button
@@ -325,7 +323,7 @@ const Navbar = ({
 
         {/* SECONDARY SUB-NAV SIDEBAR */}
         <div
-          className={`w-[260px] bg-slate-50/90 dark:bg-[#0c1410]/95 backdrop-blur-md border-r border-gray-200/80 dark:border-[#213527] flex flex-col h-full shadow-lg transition-all duration-300 ${
+          className={`w-[220px] bg-slate-50/90 dark:bg-[#0c1410]/95 backdrop-blur-md border-r border-gray-200/80 dark:border-[#213527] flex flex-col h-full shadow-lg transition-all duration-300 ${
             isSidebarOpen ? "block" : "hidden"
           }`}
         >
@@ -390,6 +388,18 @@ const Navbar = ({
                 >
                   <Shield className="w-5 h-5 shrink-0" />
                   <span>Dashboard Pengamanan & Korporasi</span>
+                </button>
+
+                <button
+                  onClick={() => handleNavClick("pusat_data_barang")}
+                  className={`w-full px-4 py-3 rounded-xl font-semibold text-sm flex items-center gap-3 text-left transition-all ${
+                    view === "pusat_data_barang"
+                      ? "bg-[#279969]/20 text-[#0d5c3a] border border-[#279969]/30 dark:bg-[#279969]/30 dark:text-emerald-200 shadow-2xs font-bold"
+                      : "text-gray-800 dark:text-slate-200 hover:bg-gray-100 dark:hover:bg-[#1a2b20]"
+                  }`}
+                >
+                  <Database className="w-5 h-5 shrink-0" />
+                  <span>Pusat Data Barang</span>
                 </button>
               </div>
             )}
@@ -604,17 +614,6 @@ const Navbar = ({
             {/* SUB-MENU FOR INVENTARIS */}
             {primaryCategory === "inventaris" && (
               <div className="space-y-2">
-                <button
-                  onClick={() => handleNavClick("pusat_data_barang")}
-                  className={`w-full px-4 py-3 rounded-xl font-semibold text-sm flex items-center gap-3 text-left transition-all ${
-                    view === "pusat_data_barang"
-                      ? "bg-[#279969]/20 text-[#0d5c3a] border border-[#279969]/30 dark:bg-[#279969]/30 dark:text-emerald-200 shadow-2xs font-bold"
-                      : "text-gray-800 dark:text-slate-200 hover:bg-gray-100 dark:hover:bg-[#1a2b20]"
-                  }`}
-                >
-                  <FileText className="w-5 h-5 shrink-0" />
-                  <span>Pusat Data Barang</span>
-                </button>
                 {/* Meubelair Single Link */}
                 <button
                   onClick={() => handleNavClick("inventaris_mebelair")}

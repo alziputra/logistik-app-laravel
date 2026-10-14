@@ -1,23 +1,25 @@
-"use client";
 import { useState, useEffect, useRef, useMemo } from "react";
 import { createPortal } from "react-dom";
 import { usePage } from "@inertiajs/react";
 import {
-  FileText, ArrowRight, Plus, Trash2, AlertCircle, AlertTriangle, Info,
+  FileText, ArrowLeft, ArrowRight, Plus, Trash2, AlertCircle, AlertTriangle,
   Package, PackageCheck, PackageMinus, User, Building2, Hash,
   MapPin, Calendar, ClipboardList, ChevronDown, Settings,
 } from "lucide-react";
 import CustomSelectDropdown from "./CustomSelectDropdown";
-import VendorSelectDropdown from "./VendorSelectDropdown";
 import LetterNumberSettingsModal from "./LetterNumberSettingsModal";
-import WeekendWarningModal from "../Common/WeekendWarningModal";
-import axios from "axios";
+import { fetchJson } from "@/utils/inertiaRequest";
 
-const NOMOR_PATTERN = /^\d+\/[A-Za-z0-9._-]+\/\d{2}\/\d{4}$/;
+const NOMOR_PATTERN = /^\d+\/[A-Za-z0-9._-]+\/04\/\d{4}$/;
 
 const isNomorValid = (nomor) => {
   if (!nomor || !NOMOR_PATTERN.test(nomor)) return false;
   return !/^0+$/.test(nomor.split("/")[0]);
+};
+
+const getItemVendor = (item) => {
+  if (typeof item?.vendor === "string") return item.vendor;
+  return item?.vendor?.nama || item?.vendor?.name || item?.vendor_nama || item?.penyedia || "";
 };
 
 // ── Komponen input field kecil dengan label & icon ──
@@ -169,24 +171,23 @@ const FormView = ({
   inventory,
   masterMeubelairs = [],
   outlets = [],
-  vendors = [],
   transactions = [],
   activeTransaction = null,
+  onValidityChange = () => {},
 }) => {
   const [nomorUrut, setNomorUrut] = useState("");
   const [jenisTransaksi, setJenisTransaksi] = useState(
     formData.jenisTransaksi || "Barang Keluar"
   );
   const [showValidationModal, setShowValidationModal] = useState(false);
-  const [hasSubmittedValidation, setHasSubmittedValidation] = useState(false);
-  const [vendorOption, setVendorOption] = useState("sama");
+  const hasSubmittedValidation = false;
 
   const { auth } = usePage().props;
   const isAdmin = auth?.user?.role === "admin";
   const [showSettingsModal, setShowSettingsModal] = useState(false);
-  const [showWeekendModal, setShowWeekendModal] = useState(false);
   const [slotError, setSlotError] = useState(null);
   const [letterNumberMode, setLetterNumberMode] = useState("otomatis");
+  const [activeFormTab, setActiveFormTab] = useState("kop");
   const isManualMode = letterNumberMode === "manual";
 
   const isKeluar = jenisTransaksi === "Barang Keluar";
@@ -199,7 +200,6 @@ const FormView = ({
   const selectedOutletObj = (outlets || []).find((o) => o.nama === currentOutletName);
 
   const dateObj = formData.tanggal ? new Date(formData.tanggal) : new Date();
-  const bulan = String(dateObj.getMonth() + 1).padStart(2, "0");
   const tahun = dateObj.getFullYear();
 
   // Outlet code for Nomor Surat:
@@ -212,7 +212,7 @@ const FormView = ({
         ? selectedOutletObj.code || selectedOutletObj.kode || selectedOutletObj.kode_outlet || defaultKode
         : defaultKode);
 
-  const suffix = `/${kodeOutlet || "____"}/${bulan}/${tahun}`;
+  const suffix = `/${kodeOutlet || "____"}/04/${tahun}`;
 
   // Sync local states with loaded transaction data when editing or starting new
   useEffect(() => {
@@ -244,14 +244,16 @@ const FormView = ({
       const fullNo = `${nomorUrut.padStart(3, "0")}${suffix}`;
       handleInputChange({ target: { name: "nomorSurat", value: fullNo } });
     }
-  }, [nomorUrut, kodeOutlet, bulan, tahun]);
+  }, [nomorUrut, kodeOutlet, tahun]);
 
   const fetchNextNumber = async (selectedDate = formData.tanggal, selectedJenis = jenisTransaksi) => {
     if (activeTransaction) return;
     try {
       const typeKey = selectedJenis === "Barang Masuk" ? "serah_terima_masuk" : "serah_terima_keluar";
       const qDate = selectedDate || new Date().toISOString().split("T")[0];
-      const res = await axios.get(`/api/letter-numbers/next?letter_type=${typeKey}&tanggal=${qDate}`);
+      const res = await fetchJson("/api/letter-numbers/next", {
+        params: { letter_type: typeKey, tanggal: qDate },
+      });
       const data = res.data;
       if (data.mode) {
         setLetterNumberMode(data.mode);
@@ -264,9 +266,8 @@ const FormView = ({
           ? defaultKode
           : (selectedOutletObj ? selectedOutletObj.code || selectedOutletObj.kode || selectedOutletObj.kode_outlet || defaultKode : defaultKode);
         const dateParts = String(qDate).split("T")[0].split("-");
-        const targetBulan = dateParts.length === 3 ? dateParts[1] : String(new Date(qDate).getMonth() + 1).padStart(2, "0");
         const targetTahun = dateParts.length === 3 ? dateParts[0] : new Date(qDate).getFullYear();
-        const currentTargetSuffix = `/${currentTargetKode || "____"}/${targetBulan}/${targetTahun}`;
+        const currentTargetSuffix = `/${currentTargetKode || "____"}/04/${targetTahun}`;
         handleInputChange({
           target: { name: "nomorSurat", value: `${nextNum.padStart(3, "0")}${currentTargetSuffix}` },
         });
@@ -277,6 +278,7 @@ const FormView = ({
         setSlotError(null);
       }
     } catch (err) {
+      if (err.cancelled) return;
       console.error("Gagal mengambil nomor surat otomatis:", err);
     }
   };
@@ -403,63 +405,46 @@ const FormView = ({
   // Validation Daftar Barang (Nama Barang & Outlet Tujuan/Asal wajib diisi per baris)
   const itemsNamaValid = items.length > 0 && items.every((i) => Boolean(i.nama && i.nama.trim()));
   const itemsOutletValid = items.length > 0 && items.every((i) => Boolean(i.outlet && i.outlet.trim()));
-  const itemsVendorValid = items.length > 0 && items.every((i) => Boolean(i.vendor && i.vendor.trim()));
-  const itemsValid = itemsNamaValid && itemsOutletValid && itemsVendorValid;
+  const itemsQuantityValid = items.length > 0 && items.every((i) => Number.isInteger(Number(i.kuantitas)) && Number(i.kuantitas) >= 1);
+  const itemsValid = itemsNamaValid && itemsOutletValid && itemsQuantityValid;
 
-  const isWeekend = (dateStr) => {
-    if (!dateStr) return false;
-    const parts = String(dateStr).split("T")[0].split("-");
-    if (parts.length === 3) {
-      const d = new Date(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10));
-      const day = d.getDay();
-      return day === 0 || day === 6;
-    }
-    const d = new Date(dateStr);
-    const day = d.getDay();
-    return day === 0 || day === 6;
-  };
-
-  const tanggalIsWeekend = isWeekend(formData.tanggal);
   const nomorIsEmpty = !formData.nomorSurat;
   const nomorIs000 = formData.nomorSurat?.startsWith("000/");
   const nomorIsValid = isNomorValid(formData.nomorSurat) && !isDuplicateNomor;
 
-  const canProceed = nomorIsValid && outletIsValid && pihakIsValid && itemsValid && !hasInvalidStock && !tanggalIsWeekend;
+  const canProceed = nomorIsValid;
+  const formValidationMessage = nomorIsValid
+    ? ""
+    : "Nomor surat belum diisi! Harap masukkan nomor surat terlebih dahulu untuk mencetak atau menyimpan transaksi.";
+
+  useEffect(() => {
+    onValidityChange({ canProceed, message: formValidationMessage });
+  }, [canProceed, formValidationMessage, onValidityChange]);
 
   const handleProceedToPreview = () => {
-    if (tanggalIsWeekend) {
-      setShowWeekendModal(true);
+    if (!nomorIsValid) {
+      setShowValidationModal(true);
       return;
     }
-    if (canProceed) {
-      setView("preview");
-    } else {
-      setHasSubmittedValidation(true);
-      setShowValidationModal(true);
-    }
+    setView("preview");
   };
 
   return (
-    <div className="max-w-6xl mx-auto mt-6 print:hidden pb-10 space-y-6">
+    <div className="w-full max-w-none space-y-4 pb-6 print:hidden">
       {/* ── TOP BAR ── */}
-      <div className="bg-white dark:bg-gradient-to-br dark:from-[#052819] dark:via-[#073622] dark:to-[#03140d] rounded-3xl shadow-xl shadow-gray-200/60 dark:shadow-none border border-gray-200/90 dark:border-[#2b4533] px-6 py-5 flex items-center justify-between transition-all">
+      <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-sm border border-gray-200 dark:border-slate-800 px-4 py-4 sm:px-5 flex items-center justify-between gap-3">
         <div className="flex items-center gap-3.5">
-          <div className="w-10 h-10 rounded-2xl bg-emerald-600 flex items-center justify-center flex-shrink-0 shadow-md shadow-emerald-600/30">
+          <div className="w-10 h-10 rounded-xl bg-emerald-700 flex items-center justify-center flex-shrink-0 text-white">
             <FileText className="w-5 h-5 text-white" />
           </div>
           <div>
-            <h2 className="text-lg font-black text-gray-900 dark:text-slate-100 leading-tight tracking-tight">Buat Surat Serah Terima</h2>
-            <p className="text-xs text-gray-500 dark:text-slate-400 mt-0.5 font-medium">Isi semua data dengan benar sebelum lanjut ke preview</p>
+            <h2 className="text-base font-extrabold text-gray-900 dark:text-slate-100 leading-tight">{activeTransaction ? "Edit Berita Acara (BAST)" : "Buat Berita Acara (BAST)"}</h2>
+            <p className="text-xs text-gray-500 dark:text-slate-400 mt-0.5">Editor Berita Acara Serah Terima Barang</p>
           </div>
         </div>
-        <div className="flex items-center gap-3">
-          {hasInvalidStock && (
-            <span className="text-xs text-red-600 bg-red-50 border border-red-200 px-3 py-1.5 rounded-xl font-bold flex items-center gap-1 shadow-2xs">
-              <AlertCircle className="w-3.5 h-3.5 shrink-0" /> Stok barang tidak valid / tidak cukup
-            </span>
-          )}
+        <div className="flex items-center gap-2">
           {hasSubmittedValidation && !canProceed && (
-            <div className="flex items-center gap-2">
+            <div className="hidden xl:flex items-center gap-2">
               {isDuplicateNomor ? (
                 <span className="text-[11px] font-extrabold text-red-600 bg-red-50 dark:bg-red-950/40 dark:text-red-400 px-3.5 py-1.5 rounded-xl border border-red-200 dark:border-red-800 flex items-center gap-1.5 shadow-2xs">
                   <AlertCircle className="w-3.5 h-3.5 shrink-0" /> Nomor surat sudah digunakan!
@@ -484,9 +469,9 @@ const FormView = ({
                 <span className="text-[11px] font-extrabold text-red-600 bg-red-50 dark:bg-red-950/40 dark:text-red-400 px-3.5 py-1.5 rounded-xl border border-red-200 dark:border-red-800 flex items-center gap-1.5 shadow-2xs">
                   <AlertCircle className="w-3.5 h-3.5 shrink-0" /> Outlet {isKeluar ? "tujuan" : "asal"} pada daftar barang wajib diisi
                 </span>
-              ) : !itemsVendorValid ? (
+              ) : !itemsQuantityValid ? (
                 <span className="text-[11px] font-extrabold text-red-600 bg-red-50 dark:bg-red-950/40 dark:text-red-400 px-3.5 py-1.5 rounded-xl border border-red-200 dark:border-red-800 flex items-center gap-1.5 shadow-2xs">
-                  <AlertCircle className="w-3.5 h-3.5 shrink-0" /> Vendor barang wajib diisi
+                  <AlertCircle className="w-3.5 h-3.5 shrink-0" /> QTY setiap barang minimal 1
                 </span>
               ) : null}
             </div>
@@ -494,14 +479,35 @@ const FormView = ({
           <button
             type="button"
             onClick={handleProceedToPreview}
-            className="bg-[#279969] hover:bg-[#1e7a53] active:scale-95 text-white px-7 py-3 rounded-full text-xs font-bold tracking-wide uppercase transition-all shadow-md shadow-[#279969]/30 cursor-pointer"
+            className="lg:hidden inline-flex items-center gap-1.5 bg-emerald-700 hover:bg-emerald-800 text-white px-3.5 py-2.5 rounded-lg text-xs font-bold transition-colors cursor-pointer"
           >
-            Lanjut ke Preview &gt;
+            Preview <ArrowRight className="w-3.5 h-3.5" />
           </button>
         </div>
       </div>
 
+      <div className="grid grid-cols-3 rounded-xl bg-emerald-800 p-1 text-center text-[11px] font-bold shadow-sm sm:text-xs" role="tablist" aria-label="Tahapan formulir BAST">
+        {[
+          { id: "kop", label: "Kop & Pihak" },
+          { id: "pihak", label: "Pihak Terlibat" },
+          { id: "barang", label: `Daftar Barang (${items.length})` },
+        ].map((tab) => (
+          <button
+            key={tab.id}
+            type="button"
+            role="tab"
+            aria-selected={activeFormTab === tab.id}
+            onClick={() => setActiveFormTab(tab.id)}
+            className={`min-h-10 rounded-lg px-1.5 py-2 transition-colors sm:px-3 ${activeFormTab === tab.id ? "bg-white text-emerald-800 shadow-sm" : "text-emerald-50 hover:bg-emerald-700"}`}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
+
       {/* ── SECTION 1: Info Dokumen ── */}
+      {activeFormTab === "kop" && (
+        <>
       <div className="bg-white dark:bg-gradient-to-br dark:from-[#052819] dark:via-[#073622] dark:to-[#03140d] rounded-3xl shadow-xl shadow-gray-200/60 dark:shadow-none border border-gray-200/90 dark:border-[#2b4533] p-6 sm:p-7 transition-all">
         <h3 className="text-sm sm:text-base font-black tracking-wide uppercase text-emerald-600 dark:text-emerald-400 mb-5 flex items-center gap-2">
           <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" />
@@ -566,7 +572,7 @@ const FormView = ({
             </Field>
           </div>
 
-          <div className="md:col-span-4">
+          <div className="md:col-span-5 min-w-0">
             <div>
               <div className="flex items-center justify-between mb-1.5 h-5 leading-none">
                 <label className="flex items-center gap-1.5 text-xs font-extrabold text-gray-900 dark:text-slate-100 uppercase tracking-wider">
@@ -595,19 +601,19 @@ const FormView = ({
                   value={nomorUrut}
                   readOnly={!isManualMode}
                   onChange={isManualMode ? handleNomorChange : undefined}
-                  className={`min-w-[4rem] w-auto h-full px-2.5 text-center font-mono font-black text-sm outline-none focus:outline-none focus:ring-0 focus:border-none border-none bg-transparent ${
+                  className={`w-[3.75rem] min-w-[3.75rem] shrink-0 h-full px-1 text-center font-mono font-black text-sm outline-none focus:outline-none focus:ring-0 focus:border-none border-none bg-transparent ${
                     isManualMode
                       ? "text-gray-900 dark:text-slate-100 cursor-text"
                       : "text-gray-600 dark:text-gray-400 cursor-not-allowed select-none"
                   }`}
                   title={!isManualMode ? `Nomor surat terisi otomatis (Mode ${letterNumberMode === "reset_manual" ? "Reset Manual" : "Otomatis"}). Ubah ke Mode Manual di Pengaturan Nomor Surat jika ingin mengubah nomor surat.` : ""}
                 />
-                <span className="flex-1 flex items-center justify-start px-2.5 text-gray-900 dark:text-emerald-400 font-mono text-xs border-l border-gray-200 dark:border-[#2b4533] bg-gray-50 dark:bg-[#1e3125] h-full select-none font-bold truncate">
+                <span className="min-w-0 flex-1 flex items-center justify-start px-1 text-gray-900 dark:text-emerald-400 font-mono text-[9px] border-l border-gray-200 dark:border-[#2b4533] bg-gray-50 dark:bg-[#1e3125] h-full select-none font-bold truncate">
                   {suffix}
                 </span>
               </div>
-              {slotError && !tanggalIsWeekend && (
-                <span className="text-[10px] text-amber-600 dark:text-amber-400 block mt-1 font-bold flex items-center gap-1">
+              {slotError && (
+                <span className="text-[10px] text-amber-600 dark:text-amber-400 block mt-1 font-bold items-center gap-1">
                   <AlertTriangle className="w-3 h-3 shrink-0" /> {slotError}
                 </span>
               )}
@@ -634,7 +640,7 @@ const FormView = ({
             </div>
           </div>
 
-          <div className="md:col-span-4">
+          <div className="md:col-span-3">
             <Field label="Tanggal *">
               <input
                 type="date"
@@ -648,11 +654,6 @@ const FormView = ({
                 }}
                 className={inputCls}
               />
-              {tanggalIsWeekend && (
-                <span className="text-[10px] text-red-600 dark:text-red-400 block mt-1 font-bold flex items-center gap-1">
-                  <AlertTriangle className="w-3 h-3 shrink-0" /> Hari Sabtu & Minggu tidak dapat disubmit (hanya Senin s.d. Jumat).
-                </span>
-              )}
             </Field>
           </div>
         </div>
@@ -698,8 +699,17 @@ const FormView = ({
           </div>
         </div>
       </div>
+          <div className="flex justify-end">
+            <button type="button" onClick={() => setActiveFormTab("pihak")} className="inline-flex items-center gap-2 rounded-lg bg-emerald-700 px-4 py-2.5 text-xs font-bold text-white transition hover:bg-emerald-800">
+              Lanjut: Pihak Terlibat <ArrowRight className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        </>
+      )}
 
       {/* ── SECTION 2: Pihak yang Terlibat ── */}
+      {activeFormTab === "pihak" && (
+        <>
       <div className="bg-white dark:bg-gradient-to-br dark:from-[#052819] dark:via-[#073622] dark:to-[#03140d] rounded-3xl shadow-xl shadow-gray-200/60 dark:shadow-none border border-gray-200/90 dark:border-[#2b4533] p-6 sm:p-7 transition-all">
         <div className="flex items-center justify-between mb-5">
           <h3 className="text-sm sm:text-base font-black tracking-wide uppercase text-emerald-600 dark:text-emerald-400 flex items-center gap-2">
@@ -793,8 +803,20 @@ const FormView = ({
           </div>
         </div>
       </div>
+          <div className="flex items-center justify-between gap-3">
+            <button type="button" onClick={() => setActiveFormTab("kop")} className="inline-flex items-center gap-1.5 rounded-lg bg-slate-100 px-3.5 py-2.5 text-xs font-bold text-slate-700 transition hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700">
+              <ArrowLeft className="h-3.5 w-3.5" /> Kembali: Kop
+            </button>
+            <button type="button" onClick={() => setActiveFormTab("barang")} className="inline-flex items-center gap-2 rounded-lg bg-emerald-700 px-4 py-2.5 text-xs font-bold text-white transition hover:bg-emerald-800">
+              Lanjut: Daftar Barang <ArrowRight className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        </>
+      )}
 
       {/* ── SECTION 3: Daftar Barang ── */}
+      {activeFormTab === "barang" && (
+        <>
       <div className="bg-white dark:bg-gradient-to-br dark:from-[#052819] dark:via-[#073622] dark:to-[#03140d] rounded-3xl shadow-xl shadow-gray-200/60 dark:shadow-none border border-gray-200/90 dark:border-[#2b4533] p-6 sm:p-7 transition-all">
         <div className="flex items-center justify-between mb-5">
           <div className="flex items-center gap-2.5">
@@ -834,7 +856,7 @@ const FormView = ({
                     Nama Barang <span className="text-red-500 font-black text-sm ml-0.5">*</span>
                   </th>
                   <th className="px-3 py-3.5 font-extrabold text-gray-900 dark:text-slate-100 w-[15%]">S/N</th>
-                  <th className="px-3 py-3.5 text-center font-extrabold text-gray-900 dark:text-slate-100 w-20">Qty</th>
+                  <th className="px-3 py-3.5 text-center font-extrabold text-gray-900 dark:text-slate-100 w-24 min-w-[6rem]">Qty</th>
                   <th className="px-3 py-3.5 font-extrabold text-gray-900 dark:text-slate-100 w-28">Satuan</th>
                   <th className="px-3 py-3.5 font-extrabold text-gray-900 dark:text-slate-100 w-[20%]">
                     {isKeluar ? "Outlet Tujuan" : "Outlet Asal"} <span className="text-red-500 font-black text-sm ml-0.5">*</span>
@@ -855,10 +877,22 @@ const FormView = ({
                     <td className="px-2 py-2">
                       <BarangSelectDropdown
                         value={item.nama || ""}
-                        onChange={(val) => handleItemChange(item.id, "nama", val)}
+                        onChange={(val) => {
+                          const normalizedName = val.trim().toLowerCase();
+                          const masterItem = [...(inventory || []), ...(masterMeubelairs || [])].find((entry) =>
+                            (entry.nama || entry.nama_barang || entry.jenis || "").trim().toLowerCase() === normalizedName
+                          );
+                          handleItemChange(item.id, {
+                            nama: val,
+                            vendor: masterItem ? getItemVendor(masterItem) : "",
+                          });
+                        }}
                         onSelect={(inv) => {
-                          handleItemChange(item.id, "nama", inv.nama);
-                          if (inv.satuan) handleItemChange(item.id, "satuan", inv.satuan);
+                          handleItemChange(item.id, {
+                            nama: inv.nama,
+                            satuan: inv.satuan || item.satuan,
+                            vendor: getItemVendor(inv),
+                          });
                         }}
                         inventory={inventory}
                         masterMeubelairs={masterMeubelairs}
@@ -899,14 +933,17 @@ const FormView = ({
                         placeholder="Serial number"
                       />
                     </td>
-                    <td className="px-2 py-2">
+                    <td className="w-24 min-w-[6rem] px-2 py-2">
                       <input
                         type="number"
                         min="1"
                         value={item.kuantitas}
                         onChange={(e) => handleItemChange(item.id, "kuantitas", e.target.value)}
-                        className="w-full text-xs text-center px-2 py-2 border border-transparent hover:border-gray-200 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 rounded-md bg-transparent focus:bg-white transition-all outline-none dark:focus:bg-[#0f1712] dark:hover:border-[#2b4533] dark:text-[#f1f5f3] dark:focus:text-white"
+                        className={`w-full min-w-[4.5rem] text-sm text-center px-2 py-2 border rounded-md bg-white transition-all outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 dark:bg-[#0f1712] dark:text-[#f1f5f3] dark:focus:text-white ${hasSubmittedValidation && (!Number.isInteger(Number(item.kuantitas)) || Number(item.kuantitas) < 1) ? "border-red-500" : "border-gray-200 dark:border-[#2b4533]"}`}
                       />
+                      {hasSubmittedValidation && (!Number.isInteger(Number(item.kuantitas)) || Number(item.kuantitas) < 1) && (
+                        <span className="mt-1 block text-center text-[10px] font-semibold text-red-500">Min. 1</span>
+                      )}
                       {isKeluar && item.nama && (() => {
                         const invItem = inventory.find(i => i.nama === item.nama);
                         if (invItem && invItem.kuantitas > 0 && Number(item.kuantitas) > invItem.kuantitas) {
@@ -995,127 +1032,18 @@ const FormView = ({
               unit
             </p>
           </div>
-
-          {/* Sub-Section Vendor Barang (Sesuai Baris Barang) */}
-          <div className="mt-7 pt-6 border-t border-gray-200 dark:border-[#2b4533] space-y-4 px-1.5">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 px-1">
-              <h4 className="text-xs font-black tracking-wider uppercase text-gray-900 dark:text-slate-100 flex items-center gap-1">
-                Vendor Barang <span className="text-red-500 font-black text-xs ml-0.5">*</span>
-              </h4>
-              <span className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-xs font-extrabold bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800/60 shadow-2xs mr-1">
-                <Info className="w-3.5 h-3.5 shrink-0 text-emerald-600 dark:text-emerald-400" />
-                Internal logistik (tidak tampil di preview cetak)
-              </span>
-            </div>
-
-            {/* Opsi Pilihan Mode Vendor jika barang > 1 */}
-            {items.length > 1 && (
-              <div className="flex flex-wrap items-center gap-2 p-1.5 bg-gray-100/90 dark:bg-[#142219] rounded-2xl border border-gray-200 dark:border-[#243a2b] max-w-fit">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setVendorOption("sama");
-                    const commonVendor = items[0]?.vendor || "";
-                    items.forEach((i) => handleItemChange(i.id, "vendor", commonVendor));
-                  }}
-                  className={`px-3.5 py-2 rounded-xl text-xs font-extrabold transition-all cursor-pointer shadow-2xs flex items-center gap-2 ${
-                    vendorOption === "sama"
-                      ? "bg-emerald-600 text-white shadow-md shadow-emerald-600/20"
-                      : "bg-white dark:bg-[#16231a] text-gray-600 dark:text-slate-300 hover:text-gray-900 border border-gray-200 dark:border-[#2b4533]"
-                  }`}
-                >
-                  <span className={`w-2 h-2 rounded-full ${vendorOption === "sama" ? "bg-white animate-pulse" : "bg-gray-400"}`} />
-                  Vendor Sama (Semua Barang)
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setVendorOption("berbeda")}
-                  className={`px-3.5 py-2 rounded-xl text-xs font-extrabold transition-all cursor-pointer shadow-2xs flex items-center gap-2 ${
-                    vendorOption === "berbeda"
-                      ? "bg-emerald-600 text-white shadow-md shadow-emerald-600/20"
-                      : "bg-white dark:bg-[#16231a] text-gray-600 dark:text-slate-300 hover:text-gray-900 border border-gray-200 dark:border-[#2b4533]"
-                  }`}
-                >
-                  <span className={`w-2 h-2 rounded-full ${vendorOption === "berbeda" ? "bg-white animate-pulse" : "bg-gray-400"}`} />
-                  Vendor Berbeda (Per Baris Barang)
-                </button>
-              </div>
-            )}
-
-            {/* Mode 1: Vendor Sama (Semua barang mengisi vendor yang sama) */}
-            {items.length > 1 && vendorOption === "sama" ? (
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-1">
-                <div className="bg-gray-50/80 dark:bg-[#16231a] p-3.5 rounded-2xl border border-gray-200/90 dark:border-[#2b4533] space-y-1.5 transition-all">
-                  <label className="text-xs font-bold text-gray-800 dark:text-slate-200 flex items-center justify-between">
-                    <span>
-                      Vendor Barang (Semua Barang) <span className="text-red-500 font-black text-xs ml-0.5">*</span>
-                    </span>
-                    <span className="text-[11px] font-semibold text-emerald-600 dark:text-emerald-400">
-                      ({items.length} Barang)
-                    </span>
-                  </label>
-                  <VendorSelectDropdown
-                    value={items[0]?.vendor || ""}
-                    onChange={(val) => {
-                      items.forEach((i) => handleItemChange(i.id, "vendor", val));
-                    }}
-                    onSelect={(v) => {
-                      items.forEach((i) => handleItemChange(i.id, "vendor", v.nama));
-                    }}
-                    vendors={vendors}
-                    placeholder="Pilih atau ketik nama vendor untuk semua barang..."
-                    error={hasSubmittedValidation && !items[0]?.vendor?.trim()}
-                    openUpward={true}
-                  />
-                  {hasSubmittedValidation && !items[0]?.vendor?.trim() && (
-                    <span className="text-[10px] text-red-500 dark:text-red-400 block mt-1 font-semibold">
-                      Wajib diisi <span className="text-red-500 font-black">*</span>
-                    </span>
-                  )}
-                </div>
-              </div>
-            ) : (
-              /* Mode 2: Vendor Berbeda per Baris Barang (atau barang hanya 1) */
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-1">
-                {items.map((item, idx) => {
-                  const vendorInvalid = hasSubmittedValidation && !item.vendor?.trim();
-                  return (
-                    <div
-                      key={item.id}
-                      className="bg-gray-50/80 dark:bg-[#16231a] p-3.5 rounded-2xl border border-gray-200/90 dark:border-[#2b4533] space-y-1.5 transition-all"
-                    >
-                      <label className="text-xs font-bold text-gray-800 dark:text-slate-200 flex items-center justify-between">
-                        <span>
-                          Vendor Baris {idx + 1} <span className="text-red-500 font-black text-xs ml-0.5">*</span>
-                        </span>
-                        {item.nama ? (
-                          <span className="text-[11px] font-semibold text-emerald-600 dark:text-emerald-400 truncate max-w-[180px]">
-                            ({item.nama})
-                          </span>
-                        ) : null}
-                      </label>
-                      <VendorSelectDropdown
-                        value={item.vendor || ""}
-                        onChange={(val) => handleItemChange(item.id, "vendor", val)}
-                        onSelect={(v) => handleItemChange(item.id, "vendor", v.nama)}
-                        vendors={vendors}
-                        placeholder={`Pilih atau ketik vendor barang baris ${idx + 1}...`}
-                        error={vendorInvalid}
-                        openUpward={true}
-                      />
-                      {vendorInvalid && (
-                        <span className="text-[10px] text-red-500 dark:text-red-400 block mt-1 font-semibold">
-                          Wajib diisi <span className="text-red-500 font-black">*</span>
-                        </span>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </div>
         </div>
       </div>
+          <div className="flex items-center justify-between gap-3">
+            <button type="button" onClick={() => setActiveFormTab("pihak")} className="inline-flex items-center gap-1.5 rounded-lg bg-slate-100 px-3.5 py-2.5 text-xs font-bold text-slate-700 transition hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700">
+              <ArrowLeft className="h-3.5 w-3.5" /> Kembali: Pihak
+            </button>
+            <button type="button" onClick={handleProceedToPreview} className="lg:hidden inline-flex items-center gap-2 rounded-lg bg-emerald-700 px-4 py-2.5 text-xs font-bold text-white transition hover:bg-emerald-800">
+              Lihat Preview <ArrowRight className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        </>
+      )}
 
       {/* Custom Validation Error Modal (Pop Up Formulir Belum Lengkap) */}
       {showValidationModal && typeof document !== "undefined" && createPortal(
@@ -1131,9 +1059,9 @@ const FormView = ({
               <div className="w-14 h-14 bg-red-50 dark:bg-red-950/40 text-red-600 dark:text-red-400 rounded-full flex items-center justify-center mb-4 border border-red-100 dark:border-red-900/40">
                 <AlertTriangle className="w-7 h-7" />
               </div>
-              <h3 className="text-lg font-black text-gray-900 dark:text-slate-100 mb-2">Formulir Belum Lengkap</h3>
+              <h3 className="text-lg font-black text-gray-900 dark:text-slate-100 mb-2">Nomor Surat Belum Valid</h3>
               <p className="text-xs text-gray-500 dark:text-gray-400 leading-relaxed mb-6 font-medium">
-                Harap lengkapi semua field input yang wajib diisi sebelum lanjut ke preview dokumen.
+                Harap isi nomor surat yang valid sebelum lanjut ke preview dokumen.
               </p>
               <button
                 type="button"
@@ -1164,13 +1092,6 @@ const FormView = ({
         />
       )}
 
-      {/* Pop Up Peringatan Hari Akhir Pekan (Tengah Halaman) */}
-      <WeekendWarningModal
-        isOpen={showWeekendModal}
-        onClose={() => setShowWeekendModal(false)}
-        title="Hari Akhir Pekan Terpilih"
-        message="Hari Sabtu & Minggu tidak dapat digunakan untuk pembuatan surat. Harap pilih tanggal pada hari kerja (Senin s.d. Jumat)."
-      />
     </div>
   );
 };

@@ -1,9 +1,9 @@
 // resources/js/services/securityService.js
-import axios from 'axios';
+import { visitInertia } from '../utils/inertiaRequest';
 import { router } from '@inertiajs/react';
 import { downloadExcelTemplate } from '../utils/excelHelper';
 
-export const importSecurityCSV = async (appId, rows) => {
+export const importSecurityCSV = async (rows) => {
   if (!rows || rows.length === 0) throw new Error("File CSV kosong");
 
   const formattedRows = [];
@@ -35,11 +35,9 @@ export const importSecurityCSV = async (appId, rows) => {
     });
   }
 
-  await axios.post('/security-facilities/import', { rows: formattedRows });
+  await visitInertia('/security-facilities/import', { method: 'post', data: { rows: formattedRows } });
   return formattedRows.length;
 };
-
-export const importSecurityExcel = importSecurityCSV;
 
 export const downloadSecurityTemplate = () => {
   const headers = [

@@ -1,6 +1,4 @@
 // src/components/Layout/UserBadge.jsx
-"use client";
-
 import { useState, useRef, useEffect } from "react";
 import { createPortal } from "react-dom";
 import {
@@ -8,7 +6,7 @@ import {
   Eye, EyeOff, ShieldCheck, AlertCircle, Loader2, CheckCircle2,
   Sparkles, KeyRound, UserCheck, ShieldAlert
 } from "lucide-react";
-import axios from "axios";
+import { visitInertia } from "@/utils/inertiaRequest";
 import { router } from "@inertiajs/react";
 
 export default function UserBadge({ user, handleLogout }) {
@@ -113,9 +111,7 @@ export default function UserBadge({ user, handleLogout }) {
     setIsSaving(true);
     setErrors({});
     try {
-      const res = await axios.patch("/profile", profileData, {
-        headers: { Accept: "application/json" },
-      });
+      const res = await visitInertia("/profile", { method: "patch", data: profileData });
       showToast(res.data?.message || "Detail profil berhasil diperbarui!");
     } catch (error) {
       if (error.response?.data?.errors) {
@@ -138,9 +134,7 @@ export default function UserBadge({ user, handleLogout }) {
     setIsSaving(true);
     setErrors({});
     try {
-      const res = await axios.put("/password", passwordData, {
-        headers: { Accept: "application/json" },
-      });
+      const res = await visitInertia("/password", { method: "put", data: passwordData });
       setIsSettingsOpen(false);
       setSuccessModal({
         show: true,

@@ -1,9 +1,7 @@
-"use client";
-
 import { useState, useEffect, useRef } from "react";
 import { Search, Download, FileText, ArrowLeft, ChevronLeft, ChevronRight, Printer, Edit, Trash2, CheckCircle, AlertTriangle, History } from "lucide-react";
 import { router, usePage } from "@inertiajs/react";
-import axios from "axios";
+import { visitInertia } from "@/utils/inertiaRequest";
 
 export default function RiwayatTransaksi({
   userRole: userRoleProp,
@@ -180,26 +178,6 @@ export default function RiwayatTransaksi({
   useEffect(() => {
     setSoppHistory(prev => mergeSoppHistory(prev, soppHistoryProp.map(mapSoppHistory)));
   }, [soppHistoryProp]);
-
-  // Refresh histories immediately when the tab becomes active
-  useEffect(() => {
-    if (currentTab !== "riwayat") return;
-
-    const fetchHistories = async () => {
-      try {
-        const [spkRes, soppRes] = await Promise.all([
-          axios.get('/spk-histories'),
-          axios.get('/sopp-histories')
-        ]);
-        setSpkHistory(prev => mergeSpkHistory(prev, spkRes.data.map(mapSpkHistory)));
-        setSoppHistory(prev => mergeSoppHistory(prev, soppRes.data.map(mapSoppHistory)));
-      } catch (e) {
-        console.error("Failed to fetch histories:", e);
-      }
-    };
-
-    fetchHistories(); // Fetch immediately on tab active
-  }, [currentTab, pendingSpkEdits, pendingSoppEdits]);
 
   // Listen to optimistic updates
   useEffect(() => {
@@ -499,7 +477,7 @@ export default function RiwayatTransaksi({
       setTimeout(() => setShowSuccessToast(false), 4000);
 
       // Perform actual DB deletion in the background
-      axios.delete(`/spk-histories/${id}`)
+      visitInertia(`/spk-histories/${id}`, { method: "delete" })
         .then(() => {
           router.reload({ only: ["spkHistory"] });
         })
@@ -512,7 +490,7 @@ export default function RiwayatTransaksi({
       setTimeout(() => setShowSuccessToast(false), 4000);
 
       // Perform actual DB deletion in the background
-      axios.delete(`/sopp-histories/${id}`)
+      visitInertia(`/sopp-histories/${id}`, { method: "delete" })
         .then(() => {
           router.reload({ only: ["soppHistory"] });
         })
@@ -527,7 +505,7 @@ export default function RiwayatTransaksi({
       setTimeout(() => setShowSuccessToast(false), 4000);
 
       // Perform actual DB deletion and reload silently in the background
-      axios.delete(`/transactions/${id}`)
+      visitInertia(`/transactions/${id}`, { method: "delete" })
         .then(() => {
           router.reload({ only: ['transactions', 'inventory', 'masterMeubelairs', 'meubelairs', 'computers', 'printers', 'activityLogs'] });
         })
@@ -975,7 +953,7 @@ export default function RiwayatTransaksi({
                         </td>
                         <td className="py-2.5 px-3 text-gray-700 dark:text-slate-350 border border-slate-200 dark:border-[#213527] max-w-[250px] break-words">
                           {trx.items && trx.items.length > 0 ? (
-                            <div className="line-clamp-2 text-xs break-words break-all [overflow-wrap:anywhere]" title={trx.items.map(i => i.nama).join(", ")}>
+                            <div className="line-clamp-2 text-xs break-words break-all" title={trx.items.map(i => i.nama).join(", ")}>
                               {trx.items.map((i, idx) => (
                                 <span key={i.id || idx}>{i.nama} <span className="text-gray-400 dark:text-slate-500">({i.kuantitas})</span>{idx < trx.items.length - 1 ? ", " : ""}</span>
                               ))}

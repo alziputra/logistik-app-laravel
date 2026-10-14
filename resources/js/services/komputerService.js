@@ -1,5 +1,5 @@
 // resources/js/services/komputerService.js
-import axios from 'axios';
+import { visitInertia } from '../utils/inertiaRequest';
 import { router } from '@inertiajs/react';
 import { parseIndoDateToISO, parseRobustDate } from "../utils/deviceUtils";
 import { downloadExcelTemplate } from '../utils/excelHelper';
@@ -7,8 +7,8 @@ import { downloadExcelTemplate } from '../utils/excelHelper';
 /**
  * Tambah satu data komputer.
  */
-export const addKomputer = async (appId, formData) => {
-  const response = await axios.post('/computers', formData);
+export const addKomputer = async (formData) => {
+  const response = await visitInertia('/computers', { method: 'post', data: formData });
   router.reload({ only: ['computers', 'activityLogs', 'outlets'] });
   return response.data;
 };
@@ -16,8 +16,8 @@ export const addKomputer = async (appId, formData) => {
 /**
  * Perbarui data komputer berdasarkan id.
  */
-export const updateKomputer = async (appId, id, formData) => {
-  const response = await axios.put(`/computers/${id}`, formData);
+export const updateKomputer = async (id, formData) => {
+  const response = await visitInertia(`/computers/${id}`, { method: 'put', data: formData });
   router.reload({ only: ['computers', 'activityLogs', 'outlets'] });
   return response.data;
 };
@@ -25,8 +25,8 @@ export const updateKomputer = async (appId, id, formData) => {
 /**
  * Hapus data komputer berdasarkan id.
  */
-export const deleteKomputer = async (appId, id) => {
-  const response = await axios.delete(`/computers/${id}`);
+export const deleteKomputer = async (id) => {
+  const response = await visitInertia(`/computers/${id}`, { method: 'delete' });
   router.reload({ only: ['computers', 'activityLogs'] });
   return response.data;
 };
@@ -34,7 +34,7 @@ export const deleteKomputer = async (appId, id) => {
 /**
  * Import massal dari array hasil parsing PapaParse.
  */
-export const importKomputerCSV = async (appId, rows) => {
+export const importKomputerCSV = async (rows) => {
   if (!rows || rows.length === 0) throw new Error("File CSV kosong");
 
   const normalizeKey = (key) => {
@@ -149,11 +149,9 @@ export const importKomputerCSV = async (appId, rows) => {
     throw new Error("Tidak ada data komputer yang valid ditemukan. Periksa kembali nama header kolom CSV Anda.");
   }
 
-  await axios.post('/computers/import', { rows: formattedRows });
+  await visitInertia('/computers/import', { method: 'post', data: { rows: formattedRows } });
   return formattedRows.length;
 };
-
-export const importKomputerExcel = importKomputerCSV;
 
 /**
  * Trigger download file Excel template import.

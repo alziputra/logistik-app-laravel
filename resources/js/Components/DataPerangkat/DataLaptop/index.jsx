@@ -1,6 +1,4 @@
 // resources/js/Components/DataPerangkat/DataLaptop/index.jsx
-"use client";
-
 import React, { useState, useMemo, useRef } from "react";
 import {
   Laptop, Search, Plus,
@@ -10,7 +8,7 @@ import LaptopTable from "./LaptopTable";
 import LaptopModal from "./LaptopModal";
 import ConfirmDeleteModal from "../../Modal/ConfirmDeleteModal";
 import ToastNotif from "../../Modal/ToastNotif";
-import axios from "axios";
+import { visitInertia } from "@/utils/inertiaRequest";
 import { router } from "@inertiajs/react";
 import * as XLSX from "xlsx";
 import { downloadExcelTemplate, parseExcelFile } from "../../../utils/excelHelper";
@@ -119,10 +117,10 @@ export default function DataLaptop({
     setIsSaving(true);
     try {
       if (editingItem) {
-        await axios.put(`/laptops/${editingItem.id}`, formData);
+        await visitInertia(`/laptops/${editingItem.id}`, { method: "put", data: formData });
         showNotif("Data laptop berhasil diperbarui!");
       } else {
-        await axios.post("/laptops", formData);
+        await visitInertia("/laptops", { method: "post", data: formData });
         showNotif("Data laptop baru berhasil disimpan!");
       }
       setIsModalOpen(false);
@@ -144,7 +142,7 @@ export default function DataLaptop({
   const confirmDelete = async () => {
     if (!deleteConfirm.id) return;
     try {
-      await axios.delete(`/laptops/${deleteConfirm.id}`);
+      await visitInertia(`/laptops/${deleteConfirm.id}`, { method: "delete" });
       showNotif("Data laptop berhasil dihapus!");
       setDeleteConfirm({ show: false, id: null, name: "" });
       router.reload({ only: ["laptops", "activityLogs"] });
@@ -198,7 +196,7 @@ export default function DataLaptop({
     setIsSaving(true);
     try {
       const rows = await parseExcelFile(file);
-      await axios.post("/laptops/import", { rows });
+      await visitInertia("/laptops/import", { method: "post", data: { rows } });
       showNotif(`Berhasil mengimpor ${rows.length} data laptop!`);
       router.reload({ only: ["laptops", "activityLogs"] });
     } catch (err) {
